@@ -50,6 +50,37 @@ uv run python scripts/banc_flygym_bridge.py
 # → outputs scripts/banc_bridge_output/banc_bridge_walk.mp4
 ```
 
+### 4. Closed-Loop Sensory-Neural-Motor Integration 🔁
+
+| Script | Purpose |
+|---|---|
+| `scripts/banc_flygym_closed_loop.py` | **Real closed loop**: FlyGym sensors → BANC sensory neurons → LIF + STDP → motor neurons → leg actuators |
+| `scripts/build_banc_subnet.py` | Pre-builds a fast-loading `.npz` subnet from BANC feather files |
+
+**How it works**:
+1. Extracts a **leg-relevant subgraph** from BANC v888:
+   - **18 sensory neurons** (tactile / proprioception on legs)
+   - **20 interneurons** (connect sensory and motor pools)
+   - **12 motor neurons** (`leg_motor` / `body_part_effector=leg`)
+2. At **every physics step** (0.1 ms):
+   - Reads **joint angles** from FlyGym as proprioceptive sensors
+   - Encodes them as input currents to the sensory population
+   - Advances the **LIF network** with real BANC synaptic weights
+   - Applies **STDP** online (`A_pre=A_post=0.01`, `tau_trace=20 ms`)
+   - Reads motor-pool spikes and converts them to **leg-specific CPG gains**
+   - Drives NeuroMechFly leg actuators
+3. The network **adapts** its weights while the fly walks
+
+**Run it** (pre-build subnet first):
+```bash
+.venv/bin/python scripts/build_banc_subnet.py   # one-time setup
+.venv/bin/python scripts/banc_flygym_closed_loop.py
+# → outputs scripts/closed_loop_output/closed_loop.mp4
+```
+
+**Result**: 50 neurons, 5000 physics steps, **~974 total spikes**, real-time closed-loop walking simulation.
+```
+
 ---
 
 ## Quick Start (Full Setup)
@@ -90,7 +121,58 @@ uv run python scripts/banc_flygym_bridge.py
                                               └─────────────────────┘
 ```
 
-**Key insight**: BANC provides the *static* connectivity. LIF turns it into *dynamic* spike trains. The spike rate of a descending neuron is interpreted as a **motor command intensity**, which scales the CPG's intrinsic amplitude — effectively modulating how hard the fly walks.
+### Open-loop bridge (banc_flygym_bridge.py)
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌──────────────────┐
+│  BANC Connectome│     │   LIF Spiking   │     │   CPG Controller │
+│  (188K neurons) │ ──▶ │   Network       │ ──▶ │   (modulated)    │
+│  11.7M synapses │     │  (rate → gain)  │     │                  │
+└─────────────────┘     └─────────────────┘     └────────┬─────────┘
+                                                           │
+                                                           ▼
+                                              ┌─────────────────────┐
+                                              │  NeuroMechFly       │
+                                              │  MuJoCo Physics     │
+                                              │  Position Actuators │
+                                              └─────────────────────┘
+```
+
+**Key insight**: BANC provides the *static* connectivity. LIF turns it into *dynamic* spike trains. The spike rate of a descending neuron is interpreted as a **motor command intensity**, which scales the CPG's intrinsic amplitude.
+
+### Closed-loop integration (banc_flygym_closed_loop.py)
+
+```
+        ┌─────────────────────────────────────────────────────────────┐
+        │                         BANC v888 subnet                    │
+        │  ┌──────────┐    ┌────────────┐    ┌──────────────┐        │
+        │  │ Sensory  │───▶│ Interneuron│───▶│   Motor      │        │
+        │  │ (18)     │    │ (20)       │    │ (12)         │        │
+        │  └──────────┘    └────────────┘    └──────────────┘        │
+        │       ▲                                    │                │
+        │       │                                    │                │
+        │   proprioception                         leg gains          │
+        │   (joint angles)                            │                │
+        └─────────────────────────────────────────────────────────────┘
+                          │                              │
+              ┌───────────┘                              └───────────┐
+              │                                                      │
+              ▼                                                      ▼
+    ┌──────────────────┐                              ┌──────────────────┐
+    │  FlyGym sensors  │                              │  FlyGym actuators│
+    │  (read qpos)     │                              │  (CPG+gain)      │
+    └──────────────────┘                              └──────────────────┘
+              │                                              │
+              └──────────────────────────────────────────────┘
+                              NeuroMechFly physics
+```
+
+**Key insight**: This is a *true closed loop*. Every 0.1 ms physics step:
+1. Joint angles are read from the biomechanical model
+2. BANC sensory neurons are driven by proprioceptive input
+3. The spiking network (LIF + STDP) computes the next motor command
+4. Motor-neuron firing rates set per-leg CPG gains
+5. The fly's legs move, changing joint angles → back to step 1
 
 ---
 
@@ -105,7 +187,9 @@ uv run python scripts/banc_flygym_bridge.py
 | `scripts/test_banc_real.py` | **new** | Coverage + LIF demo |
 | `scripts/run_banc_lif.py` | **new** | Main neural dynamics |
 | `scripts/run_banc_network.py` | **new** | Recurrent subgraph |
-| `scripts/banc_flygym_bridge.py` | **new** | **The bridge** |
+| `scripts/banc_flygym_bridge.py` | **new** | **Open-loop bridge** |
+| `scripts/banc_flygym_closed_loop.py` | **new** | **Closed-loop sensory-neural-motor** |
+| `scripts/build_banc_subnet.py` | **new** | Pre-build BANC subnet for fast loading |
 
 **No FlyGym core code was modified** (`src/flygym/` untouched).
 
