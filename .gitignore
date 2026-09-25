@@ -474,3 +474,5 @@ data/
 scripts/*raster.csv
 scripts/banc_bridge_output/
 README.original.md
+scripts/closed_loop_output/
+scripts/banc_subnet.npz
