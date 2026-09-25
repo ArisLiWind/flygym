@@ -470,3 +470,5 @@ fabric.properties
 !.idea/runConfigurations
 
 # End of https://www.toptal.com/developers/gitignore/api/vim,emacs,macos,linux,windows,visualstudiocode,git,python,jupyternotebooks
+data/
+scripts/*raster.csv
