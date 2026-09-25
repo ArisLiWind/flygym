@@ -1,41 +1,130 @@
-> [!IMPORTANT]
-> We introduced a new FlyGym 2.x.x API in March 2026, with a complete code rewrite and redesigned interface. This version delivers significantly improved performance:
-> 
-> - **~10x speed-up** for CPU-based simulations (~2x real-time throughput)
-> - **~300x speed-up** for GPU-based simulation via Warp/MJWarp (~60x real-time throughput)
+# FlyGym + BANC v888 — Neural Connectome to Biomechanics Bridge
+
+> **Original**: [NeLy-EPFL/flygym](https://github.com/NeLy-EPFL/flygym) — FlyGym 2.1.0, a MuJoCo-based biomechanical simulation of *Drosophila melanogaster*.
 >
-> Additional improvements include:
->
-> - Improved scene composition workflow
-> - Interactive viewer
-> - Simplified dependency stack
->
-> This version is not backward compatible, and not all features from FlyGym 1.x.x are available. Feature requests can be submitted via Issues on the Github repository. See more information about the changes [here](https://neuromechfly.org/migration/).
->
-> Prefer the old version? FlyGym 1.x.x has been migrated to [`flygym-gymnasium`](https://github.com/NeLy-EPFL/flygym-gymnasium). Its documentation has been migrated to [gymnasium.neuromechfly.org](https://gymnasium.neuromechfly.org/).
+> **This fork** adds a direct bridge from the **BANC v888** real neural connectome (Harvard Dataverse) into FlyGym's motor control loop, demonstrating a closed-loop pipeline: **real neuron spikes → CPG modulation → leg actuators → walking simulation**.
 
-## Simulating embodied sensorimotor control with NeuroMechFly v2
+---
 
-![](https://github.com/NeLy-EPFL/_media/blob/main/flygym/banner_large.jpg?raw=true)
+## What We Added
 
-[**Documentation**](https://neuromechfly.org/) | [**Paper**](https://www.nature.com/articles/s41592-024-02497-y.epdf?sharing_token=jK2FbKWL99-O28WNqrpXWNRgN0jAjWel9jnR3ZoTv0MjiFZczOI3_5wYVxbEbClrTuJzjKyEfhm2kIwso489-ypEsSqlyasWAEsBCvR9WU5poT-q2bblI6hCc7Zji6wb_jZjfXl7KWLbd2pgZTmWvk_ADQ6RuzlnHwvQyipMJzg%3D) | [**Discussion Board**](https://github.com/NeLy-EPFL/flygym/discussions)
+### 1. BANC Data Loading & Verification
 
-![overview_video](https://github.com/NeLy-EPFL/_media/blob/main/flygym/overview_video.gif?raw=true)
+| Script | Purpose |
+|---|---|
+| `scripts/test_banc.py` | Minimal check: loads `meta.feather` + `edgelist.feather`, prints shapes, runs a join |
+| `scripts/test_banc_real.py` | Honest validation: overlap coverage, self-loop check, LIF spiking demo |
 
-This repository contains the source code for FlyGym, the Python library for NeuroMechFly v2, a digital twin of the adult fruit fly *Drosophila* melanogaster that can see, smell, walk over challenging terrain, and interact with the environment (see our [NeuroMechFly v2 paper](https://www.nature.com/articles/s41592-024-02497-y.epdf?sharing_token=jK2FbKWL99-O28WNqrpXWNRgN0jAjWel9jnR3ZoTv0MjiFZczOI3_5wYVxbEbClrTuJzjKyEfhm2kIwso489-ypEsSqlyasWAEsBCvR9WU5poT-q2bblI6hCc7Zji6wb_jZjfXl7KWLbd2pgZTmWvk_ADQ6RuzlnHwvQyipMJzg%3D)).
+**Download** (run once):
+```bash
+cd data/banc
+curl -L -o banc_888_meta.feather "https://dataverse.harvard.edu/api/access/datafile/14033740"
+curl -L -o banc_888_edgelist_simple_v2.feather "https://dataverse.harvard.edu/api/access/datafile/13992792"
+```
 
-NeuroMechFly consists of the following components:
-- **Biomechanical model:** The biomechanical model is based on a micro-CT scan of a real adult female fly (see our original NeuroMechFly publication). We have adjusted several body segments (in particular in the antennae) to better reflect the biological reality.
-- **Vision:** The fly has compound eyes consisting of individual units called ommatidia arranged on a hexagonal lattice. We have simulated the visual inputs on the fly’s retinas.
-- **Olfaction:** The fly has odor receptors in the antennae and the maxillary palps. We have simulated the odor inputs experienced by the fly by computing the odor/chemical intensity at these locations.
-- **Hierarchical control:** The fly’s Central Nervous System consists of the brain and the Ventral Nerve Cord (VNC), a hierarchy analogous to our brain-spinal cord organization. The user can build a two-part model — one handling brain-level sensory integration and decision making and one handling VNC-level motor control — with an interface between the two consisting of descending (brain-to-VNC) and ascending (VNC-to-brain) representations.
-- **Leg adhesion:** Insects have evolved specialized adhesive structures at the tips of the legs that enable locomotion vertical walls and overhanging ceilings. We have simulated these structures in our model. The mechanism by which the fly lifts the legs during locomotion despite adhesive forces is not well understood; to abstract this, adhesion can be turned on/off during leg stance/swing.
-- **Mechanosensory feedback:** The user has access to joint angles, actuator forces, contact forces, and user-defined anatomical joint-site positions.
+### 2. BANC Neural Dynamics
 
-This package is developed at the [Neuroengineering Laboratory](https://www.epfl.ch/labs/ramdya-lab/), EPFL.
+| Script | Purpose |
+|---|---|
+| `scripts/run_banc_lif.py` | LIF spiking network of a real BANC descending neuron + 50 downstream partners |
+| `scripts/run_banc_network.py` | 200-neuron random recurrent subgraph (scalable network) |
 
-### Getting Started
+Both scripts output a `banc_*_raster.csv` for spike-time analysis.
 
-For installation, see [the documentation page](https://neuromechfly.org/installation).
+### 3. BANC → FlyGym Bridge ⭐
 
-To get started, follow [tutorials here](https://neuromechfly.org/tutorials).
+| Script | Purpose |
+|---|---|
+| `scripts/banc_flygym_bridge.py` | **End-to-end bridge**: BANC neuron spike rate → CPG amplitude modulation → NeuroMechFly walking |
+
+**How it works**:
+1. Loads BANC connectome, selects a **descending neuron** (e.g. `DNpe053`, dopaminergic)
+2. Runs a **LIF simulation** on its local circuit to compute a realistic firing rate
+3. Maps that rate to a **CPG amplitude gain** (e.g. 96 Hz → 1.60×)
+4. Runs FlyGym's **tripod CPG controller** with the modulated gain
+5. Outputs a rendered video of the biomechanical walking
+
+**Run it**:
+```bash
+uv run python scripts/banc_flygym_bridge.py
+# → outputs scripts/banc_bridge_output/banc_bridge_walk.mp4
+```
+
+---
+
+## Quick Start (Full Setup)
+
+```bash
+# 1. Clone this repo
+git clone https://github.com/ArisLiWind/flygym.git
+cd flygym
+
+# 2. Install FlyGym + dependencies (Python 3.14, managed by uv)
+uv sync --extra examples
+
+# 3. Download BANC v888 data (345 MB total)
+mkdir -p data/banc
+curl -L -o data/banc/banc_888_meta.feather "https://dataverse.harvard.edu/api/access/datafile/14033740"
+curl -L -o data/banc/banc_888_edgelist_simple_v2.feather "https://dataverse.harvard.edu/api/access/datafile/13992792"
+
+# 4. Run the bridge
+uv run python scripts/banc_flygym_bridge.py
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌──────────────────┐
+│  BANC Connectome│     │   LIF Spiking   │     │   CPG Controller │
+│  (188K neurons) │ ──▶ │   Network       │ ──▶ │   (modulated)    │
+│  11.7M synapses │     │  (rate → gain)  │     │                  │
+└─────────────────┘     └─────────────────┘     └────────┬─────────┘
+                                                           │
+                                                           ▼
+                                              ┌─────────────────────┐
+                                              │  NeuroMechFly       │
+                                              │  MuJoCo Physics     │
+                                              │  Position Actuators │
+                                              └─────────────────────┘
+```
+
+**Key insight**: BANC provides the *static* connectivity. LIF turns it into *dynamic* spike trains. The spike rate of a descending neuron is interpreted as a **motor command intensity**, which scales the CPG's intrinsic amplitude — effectively modulating how hard the fly walks.
+
+---
+
+## What Was Changed vs. Original FlyGym
+
+| File | Change | Why |
+|---|---|---|
+| `scripts/launch_interactive_viewer.py` | `Fly` → `NeuroMechFly` | API deprecation fix |
+| `pyproject.toml` | `+pyarrow>=25.0.1` | Read `.feather` files |
+| `.gitignore` | `+data/`, `+*raster.csv` | Exclude large data & outputs |
+| `scripts/test_banc.py` | **new** | Data verification |
+| `scripts/test_banc_real.py` | **new** | Coverage + LIF demo |
+| `scripts/run_banc_lif.py` | **new** | Main neural dynamics |
+| `scripts/run_banc_network.py` | **new** | Recurrent subgraph |
+| `scripts/banc_flygym_bridge.py` | **new** | **The bridge** |
+
+**No FlyGym core code was modified** (`src/flygym/` untouched).
+
+---
+
+## Future Directions
+
+- **Map specific cell types** (motor neurons, sensory neurons) to specific leg actuators using known anatomical projections
+- **Add synaptic plasticity** (STDP) to the LIF layer so the bridge learns from simulation feedback
+- **Replace CPG with full BANC recurrent network** — instead of modulating CPG, directly map a BANC subgraph's activity to all 42 actuators
+- **Add sensory feedback** — use FlyGym's joint angles / contact forces to drive BANC sensory neurons in a closed loop
+
+---
+
+## Citation
+
+- **FlyGym**: Wang-Chen et al., *Nature Methods* (2024) — https://neuromechfly.org
+- **BANC v888**: Published on Harvard Dataverse, DOI: `10.7910/DVN/7WTH1N`
+
+---
+
+Maintained by: ArisLiWind / AzeleaLee
